@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# builds
+server/public/
+client/dist/
+
+# env & secrets
+.env
+.env.local
+*.env
+!*.env.example
+.env.*
+!*.env.example
+
+# logs
+*.log
+logs/
+
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# misc
+npm-debug.log*

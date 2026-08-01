@@ -1,0 +1,35 @@
+# ─────────────────────────────────────────────────────────────
+# Restricted sudoers for the dashboard user.
+#
+# Install:
+#   sudo cp deploy/sudoers.d-botdashboard /etc/sudoers.d/botdashboard
+#   sudo chmod 440 /etc/sudoers.d/botdashboard
+#   sudo visudo -c        # validate before continuing!
+#
+# IMPORTANT:
+#   * Replace my-first-bot.service / my-second-bot.service with your
+#     real unit names (e.g. mybot_bale.service / mybot_rubika.service).
+#   * Read-only commands (systemctl show, journalctl) do NOT need sudo:
+#     systemctl show works for any user, and journal access is granted
+#     via group membership instead:
+#         sudo usermod -aG systemd-journal botdashboard
+#   * `timestamp_type=none` stops sudo from writing timestamp files in
+#     /run/sudo, which the hardened service unit (ProtectSystem=strict)
+#     would otherwise forbid.
+#   * NO wildcards, NO `ALL` grants. Only the exact commands below.
+# ─────────────────────────────────────────────────────────────
+
+Defaults:botdashboard timestamp_type=none
+
+Cmnd_Alias TELEGRAM_BOT_CONTROLS = \
+    /usr/bin/systemctl start my-first-bot.service, \
+    /usr/bin/systemctl stop my-first-bot.service, \
+    /usr/bin/systemctl restart my-first-bot.service, \
+    /usr/bin/systemctl start my-second-bot.service, \
+    /usr/bin/systemctl stop my-second-bot.service, \
+    /usr/bin/systemctl restart my-second-bot.service, \
+    /usr/bin/systemctl start telegram-bot-api.service, \
+    /usr/bin/systemctl stop telegram-bot-api.service, \
+    /usr/bin/systemctl restart telegram-bot-api.service
+
+botdashboard ALL=(root) NOPASSWD: TELEGRAM_BOT_CONTROLS

@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────
+# systemd unit for the Telegram Bot Dashboard
+#
+# Install:
+#   sudo cp deploy/telegram-bot-dashboard.service /etc/systemd/system/
+#   sudo nano /etc/telegram-bot-dashboard.env      # fill in real values
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now telegram-bot-dashboard
+#
+# NOTE on hardening: `NoNewPrivileges=true` is deliberately NOT set.
+# The dashboard uses `sudo -n systemctl start|stop|restart ...` to
+# control the bot services, which requires privilege escalation.
+# `RestrictSUIDSGID` stays enabled — it only prevents *creating*
+# setuid/setgid files, and does not block executing the existing
+# /usr/bin/sudo binary.
+# ─────────────────────────────────────────────────────────────
+
+[Unit]
+Description=Telegram Bot Management Dashboard
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=botdashboard
+Group=botdashboard
+WorkingDirectory=/opt/telegram-bot-dashboard
+EnvironmentFile=/etc/telegram-bot-dashboard.env
+ExecStart=/usr/bin/node /opt/telegram-bot-dashboard/server/src/app.js
+Restart=on-failure
+RestartSec=5
+
+# Hardening (adjusted: see note above about NoNewPrivileges)
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/telegram-bot-dashboard
+RestrictSUIDSGID=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateDevices=true
+RestrictRealtime=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

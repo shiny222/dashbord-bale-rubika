@@ -1,0 +1,23 @@
+{
+  "name": "telegram-bot-dashboard-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend API for the Telegram Bot Dashboard",
+  "main": "src/app.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "node --watch src/app.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "express-session": "^1.18.1",
+    "helmet": "^8.0.0"
+  }
+}
