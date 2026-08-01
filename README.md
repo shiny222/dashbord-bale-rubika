@@ -42,6 +42,10 @@ cd dashbord-bale-rubika
 npm run install:all
 ```
 
+> On very new npm versions (12+), the install may warn about esbuild's
+> postinstall script. The build works without approving it; if install
+> ever fails, run `npm install-scripts approve esbuild` first.
+
 ## 3. Development mode
 
 Terminal 1 — backend (API on http://127.0.0.1:3000):
