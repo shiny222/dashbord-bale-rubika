@@ -1,56 +1,51 @@
-// Thin wrapper around child_process.execFile.
+// Thin wrapper around child_process.execFile (via runCommand).
 // Commands are ALWAYS invoked with an explicit executable path and an
 // argument array — never a shell string — which prevents command injection.
+//
+// Keeps the legacy "never rejects, returns a normalized result object"
+// contract so existing callers (systemd.js) and tests stay unchanged.
+// New code should prefer the typed `runCommand` from ../utils/run-command.js.
 
-import { execFile } from 'node:child_process';
+import { runCommand } from '../utils/run-command.js';
+import { CommandError } from '../errors/application-errors.js';
 
 export const E_TIMEOUT = 'TIMEOUT';
 export const E_PERMISSION = 'PERMISSION_DENIED';
 export const E_NOT_FOUND = 'SERVICE_NOT_FOUND';
 export const E_UNAVAILABLE = 'SYSTEMD_UNAVAILABLE';
 
-export class CommandError extends Error {
-  constructor(code, message, statusCode = 500) {
-    super(message);
-    this.name = 'CommandError';
-    this.code = code;
-    this.statusCode = statusCode;
-    // Messages created by this class are safe to expose to the browser.
-    this.safe = true;
-  }
-}
+// Re-export the legacy CommandError constructor so existing imports keep
+// working; it is now a thin alias over the central ApplicationError.
+export { CommandError };
 
 // Executes a command with execFile and normalizes the outcome.
 // Never rejects: it always resolves with a result object so callers can
 // inspect exit codes and stderr safely.
-export function createExecutor({ timeoutMs = 15000, maxBuffer = 4 * 1024 * 1024 } = {}) {
+export function createExecutor({ timeoutMs = 15000, maxBuffer = 4 * 1024 * 1024, operation = 'command' } = {}) {
   return function run(cmd, args, options = {}) {
-    return new Promise((resolve) => {
-      execFile(
-        cmd,
-        args,
-        {
-          timeout: options.timeoutMs ?? timeoutMs,
-          maxBuffer,
-          windowsHide: true,
-          killSignal: 'SIGKILL',
-        },
-        (error, stdout, stderr) => {
-          // error.killed is set by Node exactly when the process was
-          // terminated because of our timeout (killSignal is SIGKILL).
-          // A genuine external kill also sets signal but not killed, so
-          // we rely on `killed` / ETIMEDOUT only.
-          const timedOut = Boolean(error && (error.killed === true || error.code === 'ETIMEDOUT'));
-          resolve({
-            stdout: stdout || '',
-            stderr: stderr || '',
-            code: error ? (typeof error.code === 'number' ? error.code : -1) : 0,
-            timedOut,
-            error,
-          });
-        },
-      );
-    });
+    return runCommand({
+      executable: cmd,
+      args,
+      timeoutMs: options.timeoutMs ?? timeoutMs,
+      maxBufferBytes: options.maxBuffer ?? maxBuffer,
+      operation: options.operation || operation,
+    }).then(
+      (result) => ({ stdout: result.stdout, stderr: result.stderr, code: 0, timedOut: false, error: null }),
+      (err) => {
+        // Match on the stable machine code rather than the class hierarchy
+        // so every timeout error (regardless of which subclass produced it)
+        // is recognized.
+        const timedOut = err && err.code === 'SERVICE_COMMAND_TIMEOUT';
+        const code = timedOut ? -1 : err.exitCode ?? -1;
+        return {
+          stdout: '',
+          stderr: err.message || '',
+          code,
+          timedOut,
+          error: err,
+        };
+      },
+    );
   };
 }
 
@@ -64,11 +59,6 @@ export function classifyResult(result, cmd) {
   }
   if (result.code === 0) return { error: null, message: '' };
   const stderr = (result.stderr || '').toLowerCase();
-  // Covers both OS-level denials and sudo's own messages (a missing or
-  // wrong sudoers entry, a password prompt that cannot be answered
-  // non-interactively, or a requiretty denial). Sudo's own errors are
-  // always line-prefixed with "sudo:", so anchoring on that prefix avoids
-  // misclassifying genuine failures whose stderr merely mentions sudo.
   if (
     result.code === 126 ||
     result.code === 127 ||

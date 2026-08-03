@@ -1,6 +1,7 @@
 // Shared error-handling middleware and async wrapper.
 
 import { logger } from '../logger.js';
+import { getRequestId } from '../context/request-context.js';
 
 // Wraps async route handlers so rejected promises reach the error
 // handler instead of hanging the request.
@@ -11,22 +12,29 @@ export function asyncHandler(fn) {
 }
 
 export function notFound(req, res) {
-  res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Resource not found.' });
+  res.status(404).json({
+    success: false,
+    error: 'NOT_FOUND',
+    message: 'Resource not found.',
+    requestId: getRequestId(),
+  });
 }
 
 // Central error handler. Never leaks stack traces or raw command output
-// to the browser. Safe (crafted) messages from CommandError pass through
-// after redaction; everything else is replaced with a generic message
-// in production.
+// to the browser. Safe (crafted) messages from ApplicationError pass
+// through after redaction; everything else is replaced with a generic
+// message.
 export function createErrorHandler(redact = (s) => s) {
   // eslint-disable-next-line no-unused-vars
   return function errorHandler(err, req, res, next) {
     const status = err.statusCode || (err.code && err.code.startsWith('INVALID') ? 400 : 500);
+    const requestId = getRequestId() || null;
     logger.error('request failed', {
       method: req.method,
       path: req.originalUrl || req.path,
       error: err.message || String(err),
-      code: err.code || null,
+      code: err.code || 'INTERNAL_ERROR',
+      statusCode: status,
     });
 
     let message = 'Internal server error.';
@@ -39,6 +47,7 @@ export function createErrorHandler(redact = (s) => s) {
       success: false,
       error: err.code || 'INTERNAL_ERROR',
       message,
+      requestId,
     });
   };
 }

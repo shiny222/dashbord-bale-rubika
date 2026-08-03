@@ -188,3 +188,60 @@ test('same-origin request passes the origin check', async () => {
     await closeTestApp(server);
   }
 });
+
+test('cross-origin request from an allowlisted origin is accepted', async () => {
+  const { server, base } = await startTestApp({
+    env: { ALLOWED_ORIGINS: 'https://dash.example.com,http://10.0.0.5:3000' },
+    deps: { executor: fakeOk() },
+  });
+  try {
+    const { cookie } = await login(base);
+    for (const origin of ['https://dash.example.com', 'http://10.0.0.5:3000']) {
+      const res = await apiFetch(base, '/services/my-first-bot.service/start', {
+        method: 'POST',
+        cookie,
+        headers: { Origin: origin },
+      });
+      assert.equal(res.status, 200, `origin ${origin} should be allowed`);
+    }
+  } finally {
+    await closeTestApp(server);
+  }
+});
+
+test('ALLOWED_ORIGINS=* accepts any cross-origin request', async () => {
+  const { server, base } = await startTestApp({
+    env: { ALLOWED_ORIGINS: '*' },
+    deps: { executor: fakeOk() },
+  });
+  try {
+    const { cookie } = await login(base);
+    const res = await apiFetch(base, '/services/my-first-bot.service/start', {
+      method: 'POST',
+      cookie,
+      headers: { Origin: 'https://evil.example.com' },
+    });
+    assert.equal(res.status, 200);
+  } finally {
+    await closeTestApp(server);
+  }
+});
+
+test('cross-origin request NOT in the allowlist is still rejected', async () => {
+  const { server, base } = await startTestApp({
+    env: { ALLOWED_ORIGINS: 'https://dash.example.com' },
+    deps: { executor: fakeOk() },
+  });
+  try {
+    const { cookie } = await login(base);
+    const res = await apiFetch(base, '/services/my-first-bot.service/start', {
+      method: 'POST',
+      cookie,
+      headers: { Origin: 'https://evil.example.com' },
+    });
+    assert.equal(res.status, 403);
+    assert.equal((await res.json()).error, 'ORIGIN_MISMATCH');
+  } finally {
+    await closeTestApp(server);
+  }
+});

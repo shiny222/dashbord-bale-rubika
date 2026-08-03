@@ -1,12 +1,14 @@
 // systemd integration: status, control and journal logs.
-// All commands go through the injected executor (execFile-based) with
-// explicit argument arrays — no shell interpolation of service names.
+// All commands go through the injected executor (execFile-based via
+// runCommand) with explicit argument arrays — no shell interpolation of
+// service names.
 
 import {
   classifyResult,
   commandErrorFromClassified,
   CommandError,
 } from './executor.js';
+import { measureOperation } from '../utils/measure-operation.js';
 
 export const STATUS_RUNNING = 'running';
 export const STATUS_STOPPED = 'stopped';
@@ -116,6 +118,7 @@ export function createSystemdService(options = {}) {
     logTimeoutMs = 20000,
     logLineOptions = [50, 100, 250, 500],
     maxLogLines = 500,
+    metrics, // optional metrics collector; operation durations feed it
   } = options;
 
   if (typeof executor !== 'function') {
@@ -126,65 +129,81 @@ export function createSystemdService(options = {}) {
   const controlBaseArgs = useSudo ? ['-n', 'systemctl'] : [];
 
   async function getServiceStatus(serviceName) {
-    const baseArgs = ['show', serviceName, '--no-pager', `--property=${SHOW_PROPERTIES}`];
-    // --timestamp=utc (systemd >= 246) normalizes timestamps so parsing
-    // is independent of the host timezone. Fall back gracefully on older
-    // systemd versions that reject the flag.
-    let result = await executor('systemctl', [...baseArgs, '--timestamp=utc'], {
-      timeoutMs: commandTimeoutMs,
-    });
-    if (result.code !== 0 && /unknown option|unrecognized option|invalid option/i.test(result.stderr || '')) {
-      result = await executor('systemctl', baseArgs, { timeoutMs: commandTimeoutMs });
-    }
-    const classified = classifyResult(result, 'systemctl');
-    if (classified.error) {
-      throw commandErrorFromClassified(classified, 'Unable to query service status');
-    }
-    const props = parseSystemctlShow(result.stdout);
+    return measureOperation(
+      'service-status',
+      { serviceId: serviceName },
+      async () => {
+        const baseArgs = ['show', serviceName, '--no-pager', `--property=${SHOW_PROPERTIES}`];
+        // --timestamp=utc (systemd >= 246) normalizes timestamps so parsing
+        // is independent of the host timezone. Fall back gracefully on older
+        // systemd versions that reject the flag.
+        let result = await executor('systemctl', [...baseArgs, '--timestamp=utc'], {
+          timeoutMs: commandTimeoutMs,
+          operation: 'systemctl show',
+        });
+        if (result.code !== 0 && /unknown option|unrecognized option|invalid option/i.test(result.stderr || '')) {
+          result = await executor('systemctl', baseArgs, { timeoutMs: commandTimeoutMs, operation: 'systemctl show' });
+        }
+        const classified = classifyResult(result, 'systemctl');
+        if (classified.error) {
+          throw commandErrorFromClassified(classified, 'Unable to query service status');
+        }
+        const props = parseSystemctlShow(result.stdout);
 
-    const base = {
-      id: serviceName,
-      serviceName,
-      found: props.LoadState !== 'not-found',
-      activeState: props.ActiveState || '',
-      subState: props.SubState || '',
-      loadState: props.LoadState || '',
-      description: redact(props.Description || ''),
-      mainPid: toInt(props.MainPID),
-      execMainStatus: toInt(props.ExecMainStatus),
-      restartCount: toInt(props.NRestarts),
-      memoryBytes: toInt(props.MemoryCurrent),
-      cpuUsageNSec: toInt(props.CPUUsageNSec),
-      result: props.Result || '',
-    };
+        const base = {
+          id: serviceName,
+          serviceName,
+          found: props.LoadState !== 'not-found',
+          activeState: props.ActiveState || '',
+          subState: props.SubState || '',
+          loadState: props.LoadState || '',
+          description: redact(props.Description || ''),
+          mainPid: toInt(props.MainPID),
+          execMainStatus: toInt(props.ExecMainStatus),
+          restartCount: toInt(props.NRestarts),
+          memoryBytes: toInt(props.MemoryCurrent),
+          cpuUsageNSec: toInt(props.CPUUsageNSec),
+          result: props.Result || '',
+        };
 
-    if (!base.found) {
-      return { ...base, status: STATUS_NOT_FOUND, uptimeSeconds: 0, lastStartedAt: null };
-    }
+        if (!base.found) {
+          return { ...base, status: STATUS_NOT_FOUND, uptimeSeconds: 0, lastStartedAt: null };
+        }
 
-    const status = mapStatus(props.ActiveState, props.SubState, props.LoadState);
-    const activeEnter = parseTimestamp(props.ActiveEnterTimestamp);
-    const lastStarted = parseTimestamp(props.ExecMainStartTimestamp || props.ActiveEnterTimestamp);
-    const uptimeSeconds =
-      status === STATUS_RUNNING && activeEnter
-        ? Math.max(0, Math.floor((Date.now() - Date.parse(activeEnter)) / 1000))
-        : 0;
+        const status = mapStatus(props.ActiveState, props.SubState, props.LoadState);
+        const activeEnter = parseTimestamp(props.ActiveEnterTimestamp);
+        const lastStarted = parseTimestamp(props.ExecMainStartTimestamp || props.ActiveEnterTimestamp);
+        const uptimeSeconds =
+          status === STATUS_RUNNING && activeEnter
+            ? Math.max(0, Math.floor((Date.now() - Date.parse(activeEnter)) / 1000))
+            : 0;
 
-    return { ...base, status, uptimeSeconds, lastStartedAt: lastStarted };
+        return { ...base, status, uptimeSeconds, lastStartedAt: lastStarted };
+      },
+      { metrics },
+    );
   }
 
   async function controlService(serviceName, action) {
     if (!CONTROL_ACTIONS.includes(action)) {
       throw new CommandError('INVALID_ACTION', `Unsupported control action: ${action}`, 400);
     }
-    const result = await executor(controlCmd, [...controlBaseArgs, action, serviceName], {
-      timeoutMs: controlTimeoutMs,
-    });
-    const classified = classifyResult(result, controlCmd);
-    if (classified.error) {
-      throw commandErrorFromClassified(classified, `Failed to ${action} ${serviceName}`);
-    }
-    return { serviceName, action, success: true };
+    return measureOperation(
+      `service-${action}`,
+      { serviceId: serviceName, action },
+      async () => {
+        const result = await executor(controlCmd, [...controlBaseArgs, action, serviceName], {
+          timeoutMs: controlTimeoutMs,
+          operation: `systemctl ${action}`,
+        });
+        const classified = classifyResult(result, controlCmd);
+        if (classified.error) {
+          throw commandErrorFromClassified(classified, `Failed to ${action} ${serviceName}`);
+        }
+        return { serviceName, action, success: true };
+      },
+      { metrics },
+    );
   }
 
   // Accepts both the raw query string ('100') and an already-validated
@@ -213,47 +232,54 @@ export function createSystemdService(options = {}) {
 
   async function getServiceLogs(serviceName, { lines, search = '' } = {}) {
     const count = parseLinesParam(lines);
-    const result = await executor(
-      'journalctl',
-      ['-u', serviceName, '-n', String(count), '--no-pager', '--output=short-iso'],
-      { timeoutMs: logTimeoutMs },
-    );
-    if (result.code !== 0) {
-      if (result.timedOut) {
-        throw new CommandError('COMMAND_TIMEOUT', 'journalctl timed out while reading logs.', 504);
-      }
-      const stderr = (result.stderr || '').toLowerCase();
-      if (/permission denied|not authorized|access denied/i.test(stderr)) {
-        throw new CommandError(
-          'PERMISSION_DENIED',
-          'Unable to read journal logs: permission denied. Add the dashboard user to the systemd-journal group.',
-          403,
+    return measureOperation(
+      'service-logs',
+      { serviceId: serviceName },
+      async () => {
+        const result = await executor(
+          'journalctl',
+          ['-u', serviceName, '-n', String(count), '--no-pager', '--output=short-iso'],
+          { timeoutMs: logTimeoutMs, operation: 'journalctl' },
         );
-      }
-      if (/no such file|not found|unknown unit/i.test(stderr)) {
-        throw new CommandError('SERVICE_NOT_FOUND', `No journal entries found for ${serviceName}.`, 404);
-      }
-      throw new CommandError('JOURNAL_UNAVAILABLE', 'Unable to read journal logs. Is journald available?', 502);
-    }
-    const rawLines = (result.stdout || '')
-      .split('\n')
-      .map((l) => l.replace(/\r$/, ''))
-      .filter((l) => l.trim() !== '');
-    const query = typeof search === 'string' ? search.trim().slice(0, 200).toLowerCase() : '';
-    let parsed = rawLines.map(parseJournalLine);
-    if (query) {
-      parsed = parsed.filter(
-        (l) => l.message.toLowerCase().includes(query) || l.raw.toLowerCase().includes(query),
-      );
-    }
-    return {
-      serviceName,
-      requested: count,
-      total: rawLines.length,
-      filtered: parsed.length,
-      search: query ? search.trim().slice(0, 200) : null,
-      lines: parsed.slice(0, maxLogLines),
-    };
+        if (result.code !== 0) {
+          if (result.timedOut) {
+            throw new CommandError('COMMAND_TIMEOUT', 'journalctl timed out while reading logs.', 504);
+          }
+          const stderr = (result.stderr || '').toLowerCase();
+          if (/permission denied|not authorized|access denied/i.test(stderr)) {
+            throw new CommandError(
+              'PERMISSION_DENIED',
+              'Unable to read journal logs: permission denied. Add the dashboard user to the systemd-journal group.',
+              403,
+            );
+          }
+          if (/no such file|not found|unknown unit/i.test(stderr)) {
+            throw new CommandError('SERVICE_NOT_FOUND', `No journal entries found for ${serviceName}.`, 404);
+          }
+          throw new CommandError('JOURNAL_UNAVAILABLE', 'Unable to read journal logs. Is journald available?', 502);
+        }
+        const rawLines = (result.stdout || '')
+          .split('\n')
+          .map((l) => l.replace(/\r$/, ''))
+          .filter((l) => l.trim() !== '');
+        const query = typeof search === 'string' ? search.trim().slice(0, 200).toLowerCase() : '';
+        let parsed = rawLines.map(parseJournalLine);
+        if (query) {
+          parsed = parsed.filter(
+            (l) => l.message.toLowerCase().includes(query) || l.raw.toLowerCase().includes(query),
+          );
+        }
+        return {
+          serviceName,
+          requested: count,
+          total: rawLines.length,
+          filtered: parsed.length,
+          search: query ? search.trim().slice(0, 200) : null,
+          lines: parsed.slice(0, maxLogLines),
+        };
+      },
+      { metrics },
+    );
   }
 
   return { getServiceStatus, controlService, getServiceLogs, parseLinesParam };

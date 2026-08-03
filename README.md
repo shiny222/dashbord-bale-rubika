@@ -7,7 +7,8 @@ API server they depend on.
 - **Backend:** Node.js 22+ / Express, server-side sessions, `helmet`, rate
   limiting, CSRF defense, `bcryptjs` password hashing.
 - **Frontend:** React 18 + Vite, dark operations theme, auto-refresh every
-  5 seconds, live log viewer.
+  5 seconds, live log viewer, and an administrator **Diagnostics** page
+  (process health, memory, CPU, event-loop latency, operation timings).
 - **No database.** All configuration comes from environment variables. Sessions
   are held in memory (single process) — a dashboard restart simply logs
   everyone out.
@@ -99,6 +100,7 @@ Key variables (full list in `.env.example`):
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH` | Login credentials (hash only!) |
 | `SECURE_COOKIES` | `true` when served over HTTPS |
 | `TRUST_PROXY` | `true` behind Nginx |
+| `ALLOWED_ORIGINS` | Comma-separated extra origins allowed by the same-origin CSRF check (for proxy/hostname setups where `Origin` ≠ `Host`). `*` disables the check |
 | `USE_SUDO` | `true` (default) — control commands run via `sudo -n` |
 
 > **Never commit real secrets.** The repo ships `.env.example` only;
@@ -273,9 +275,74 @@ entry for every failed login attempt.
   config; commands are built with argv arrays (`execFile`) — no shell
   strings, no user-controlled unit names.
 - **CSRF:** SameSite=Strict cookies plus an Origin check on every
-  state-changing request.
+  state-changing request. If the dashboard is reached through a proxy or
+  hostname where the browser `Origin` differs from the backend `Host`
+  header, add that origin to `ALLOWED_ORIGINS` (comma-separated) instead
+  of weakening the check. `ALLOWED_ORIGINS=*` disables the origin check
+  entirely — only use it if you understand the CSRF trade-off.
 
-## 15. How to change the two managed bot services
+## 15. Performance diagnostics and profiling
+
+The dashboard includes lightweight, in-process diagnostics — no Redis,
+Prometheus or database required.
+
+### Normal diagnostics
+
+- `GET /api/diagnostics` — authenticated JSON snapshot: process uptime,
+  Node.js and application version, memory (RSS / heap / external),
+  cumulative CPU time, event-loop delay (mean / max / p50 / p95 / p99)
+  and recent per-operation timing statistics.
+- `/diagnostics` — the web page (nav link after sign-in) that polls that
+  endpoint every 8 seconds and renders the data as cards and tables, with
+  warning highlights for abnormal values (event-loop latency, memory
+  pressure, failing commands).
+
+The event-loop histogram is created once and sampled continuously for the
+life of the process — it is never reset when the page is opened. Operation
+metrics are stored in bounded in-memory ring buffers (200 samples per
+operation by default, capped at 1000), so nothing grows without limit.
+
+### CPU profiling (development / staging only)
+
+The app runs as a systemd service in production, so profile on a dev box
+or a staging copy:
+
+```bash
+node --cpu-prof server/src/app.js
+```
+
+This writes a `CPU.xxx.cpuprofile` file in the working directory. Open
+Chrome DevTools → Performance → ⚙ (gear) → **Load profile…** and select the
+file to inspect the flame graph.
+
+Alternatively, use V8's built-in sampling profiler:
+
+```bash
+node --prof server/src/app.js
+# exercise the app, then stop it
+node --prof-process isolate-*.log > profile.txt
+```
+
+> Profiling adds overhead. Never leave `--cpu-prof` or `--prof` enabled
+> permanently in production.
+
+### Memory investigation
+
+`/api/diagnostics` already reports `process.memoryUsage()` (RSS, heap
+used/total, external). For deeper investigation, generate a heap snapshot
+locally:
+
+```bash
+node --inspect server/src/app.js
+```
+
+then connect Chrome DevTools → Memory → **Take heap snapshot**.
+
+> Heap snapshots can contain sensitive data (tokens, session values).
+> There is intentionally **no public endpoint** that creates them — only a
+> local administrator with `--inspect` access can.
+
+## 16. How to change the two managed bot services
 
 1. Edit the sudoers file to add/remove the exact
    `systemctl start|stop|restart <unit>` lines, then `sudo visudo -c`.
@@ -300,10 +367,13 @@ GET  /api/services/:serviceName/logs?lines=100&search=error
 
 GET  /api/telegram-api/health        # systemd state + endpoint probe
 POST /api/telegram-api/control/start|stop|restart   # if enabled
+
+GET  /api/diagnostics                # authenticated; process/memory/cpu/event-loop + operation metrics
 ```
 
 All routes except login require an authenticated session. Only allowlisted
-service names are accepted.
+service names are accepted. `GET /api/diagnostics` additionally requires
+administrator authentication and is rate-limited.
 
 ## Testing
 
@@ -311,8 +381,21 @@ service names are accepted.
 cd server && npm test
 ```
 
-52 tests cover: allowlist enforcement, unknown-unit rejection, `systemctl
-show` parsing, auth + logout, start/stop/restart routes, command failure and
-timeout handling, log-line validation, secret redaction, and Telegram API
-health-check behavior. **All Linux commands are mocked** — the test suite
-never touches a real service.
+79 tests cover: allowlist enforcement, unknown-unit rejection, `systemctl
+show` parsing, concurrent status loading, per-service operation locks
+(409 on duplicate control), request IDs and async context, metrics
+collection and bounds, diagnostics payloads, auth + logout,
+start/stop/restart routes, command failure and timeout handling, the async
+command runner (success, non-zero exit, timeout, missing executable, large
+output, buffer limits, no shell mode), log-line validation, secret
+redaction, and Telegram API health-check behavior. **All Linux commands are
+mocked** — the test suite never touches a real service.
+
+Build the client before deploying:
+
+```bash
+npm run build
+```
+
+This bundles the React app (including the Diagnostics page) into
+`server/public`, which the backend serves in production.

@@ -11,7 +11,7 @@ import { useServices, useTelegramApiHealth } from '../hooks/useServices.js';
 import { useLogs } from '../hooks/useLogs.js';
 import { api } from '../api/client.js';
 
-export default function DashboardPage({ user, onLogout }) {
+export default function DashboardPage({ user, onLogout, onNavigate, view }) {
   const { notify } = useToast();
   const services = useServices();
   const telegram = useTelegramApiHealth();
@@ -119,6 +119,8 @@ export default function DashboardPage({ user, onLogout }) {
         updatedAt={services.updatedAt}
         onLogout={handleLogout}
         loggingOut={loggingOut}
+        view={view}
+        onNavigate={onNavigate}
       />
 
       <main className="content">

@@ -116,6 +116,10 @@ ADMIN_PASSWORD_HASH=<see below>
 USE_SUDO=true
 SECURE_COOKIES=false
 TRUST_PROXY=false
+# Comma-separated extra origins for the same-origin CSRF check; leave
+# empty for the SSH-tunnel setup (Origin == Host there).
+# Example: ALLOWED_ORIGINS=https://dashboard.example.com,http://192.168.1.10:3000
+ALLOWED_ORIGINS=
 LOG_LEVEL=info
 ```
 

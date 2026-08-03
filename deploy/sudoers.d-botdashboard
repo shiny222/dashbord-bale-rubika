@@ -32,4 +32,18 @@ Cmnd_Alias TELEGRAM_BOT_CONTROLS = \
     /usr/bin/systemctl stop telegram-bot-api.service, \
     /usr/bin/systemctl restart telegram-bot-api.service
 
-botdashboard ALL=(root) NOPASSWD: TELEGRAM_BOT_CONTROLS
+# Docker control helper (only used when CONTROL_BACKEND=docker).
+# The helper script itself validates service names and actions.
+Cmnd_Alias DOCKER_CONTROL = \
+    /usr/local/bin/docker-control-helper rubika start, \
+    /usr/local/bin/docker-control-helper rubika stop, \
+    /usr/local/bin/docker-control-helper rubika restart, \
+    /usr/local/bin/docker-control-helper rubika ps, \
+    /usr/local/bin/docker-control-helper rubika logs *, \
+    /usr/local/bin/docker-control-helper bale start, \
+    /usr/local/bin/docker-control-helper bale stop, \
+    /usr/local/bin/docker-control-helper bale restart, \
+    /usr/local/bin/docker-control-helper bale ps, \
+    /usr/local/bin/docker-control-helper bale logs *
+
+botdashboard ALL=(root) NOPASSWD: TELEGRAM_BOT_CONTROLS, DOCKER_CONTROL

@@ -11,14 +11,20 @@ import { loadConfig, validateSecrets } from './config/index.js';
 import { logger } from './logger.js';
 import { createExecutor } from './services/executor.js';
 import { createSystemdService } from './services/systemd.js';
+import { createDockerService } from './services/docker.js';
 import { createTelegramApiService } from './services/telegramApi.js';
 import { createRedactor } from './security/redact.js';
 import { createSessionMiddleware, requireAuth } from './middleware/auth.js';
-import { applySecurity, apiLimiter, checkSameOrigin } from './middleware/security.js';
+import { applySecurity, apiLimiter, createOriginCheck } from './middleware/security.js';
+import { createRequestContextMiddleware } from './middleware/request-context.js';
+import { createRequestTimingMiddleware } from './middleware/request-timing.js';
 import { notFound, createErrorHandler } from './middleware/errors.js';
+import { createMetricsCollector } from './diagnostics/metrics-collector.js';
+import { createDiagnosticsService } from './diagnostics/diagnostics-service.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createServicesRouter } from './routes/services.js';
 import { createTelegramApiRouter } from './routes/telegramApi.js';
+import { createDiagnosticsRouter } from './routes/diagnostics-routes.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(HERE, '..', 'public');
@@ -42,30 +48,52 @@ function collectSecrets(config) {
 export function createApp(config, deps = {}) {
   const executor = deps.executor || createExecutor({ timeoutMs: config.security.commandTimeoutMs });
   const redact = deps.redact || createRedactor(collectSecrets(config));
-  const systemd =
-    deps.systemd ||
-    createSystemdService({
-      executor,
-      redact,
-      useSudo: config.security.useSudo,
-      commandTimeoutMs: config.security.commandTimeoutMs,
-      logLineOptions: config.log.linesOptions,
-      maxLogLines: config.log.maxLogLines,
-    });
+  const metrics = deps.metrics || createMetricsCollector();
+  const diagnostics = deps.diagnostics || createDiagnosticsService({ metrics, applicationVersion: process.env.npm_package_version || '1.0.0' });
+
+  let backend;
+  if (config.controlBackend === 'docker') {
+    backend =
+      deps.docker ||
+      createDockerService({
+        executor,
+        redact,
+        commandTimeoutMs: config.security.commandTimeoutMs,
+        logLineOptions: config.log.linesOptions,
+        maxLogLines: config.log.maxLogLines,
+        metrics,
+      });
+  } else {
+    backend =
+      deps.systemd ||
+      createSystemdService({
+        executor,
+        redact,
+        useSudo: config.security.useSudo,
+        commandTimeoutMs: config.security.commandTimeoutMs,
+        logLineOptions: config.log.linesOptions,
+        maxLogLines: config.log.maxLogLines,
+        metrics,
+      });
+  }
+
   const telegramApi =
     deps.telegramApi ||
     createTelegramApiService({
-      systemd,
+      systemd: backend,
       serviceName: config.telegramApi.serviceName,
       url: config.telegramApi.url,
       timeoutMs: config.telegramApi.healthTimeoutMs,
+      metrics,
     });
 
   const app = express();
   applySecurity(app, config);
+  app.use(createRequestContextMiddleware());
   app.use(apiLimiter);
   app.use(createSessionMiddleware(config));
-  app.use(checkSameOrigin);
+  app.use(createOriginCheck({ allowedOrigins: config.security.allowedOrigins }));
+  app.use(createRequestTimingMiddleware({ metrics }));
 
   // REST API
   const api = express.Router();
@@ -73,8 +101,9 @@ export function createApp(config, deps = {}) {
     res.json({ success: true, data: { ok: true, uptime: Math.floor(process.uptime()) } });
   });
   api.use('/auth', createAuthRouter(config));
-  api.use('/services', requireAuth, createServicesRouter({ config, systemd, redact }));
-  api.use('/telegram-api', requireAuth, createTelegramApiRouter({ config, telegramApi, systemd }));
+  api.use('/services', requireAuth, createServicesRouter({ config, systemd: backend, redact, metrics }));
+  api.use('/telegram-api', requireAuth, createTelegramApiRouter({ config, telegramApi, systemd: backend }));
+  api.use('/diagnostics', createDiagnosticsRouter({ diagnostics, metrics }));
   app.use('/api', api);
 
   // Built client (production). Falls back to index.html for SPA routes.
@@ -111,9 +140,32 @@ if (isMain) {
       throw new Error(problems.join(' | '));
     }
     const app = createApp(config);
-    app.listen(config.port, config.host, () => {
+    const server = app.listen(config.port, config.host, () => {
       logger.info('dashboard started', { host: config.host, port: config.port, bots: config.bots.length });
     });
+
+    // Graceful shutdown: stop accepting requests, close the HTTP server,
+    // disable the event-loop monitor, then force-exit after a safe
+    // timeout so systemd never hangs on stop.
+    let shuttingDown = false;
+    const SHUTDOWN_FORCE_MS = 10000;
+    function shutdown(signal) {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      logger.info('shutdown started', { signal });
+      const force = setTimeout(() => {
+        logger.warn('shutdown force-exit after timeout', { signal, timeoutMs: SHUTDOWN_FORCE_MS });
+        process.exit(1);
+      }, SHUTDOWN_FORCE_MS);
+      force.unref();
+      server.close(() => {
+        clearTimeout(force);
+        logger.info('shutdown complete', { signal });
+        process.exit(0);
+      });
+    }
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
   } catch (err) {
     logger.error('startup failed', { error: err.message });
     process.exit(1);

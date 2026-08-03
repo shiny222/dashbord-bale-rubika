@@ -67,21 +67,41 @@ export const controlLimiter = rateLimit({
 // header that does not match the request host. Non-browser clients
 // (tests, curl) send no Origin and pass through — they still need a
 // valid session cookie.
-export function checkSameOrigin(req, res, next) {
-  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
-  const origin = req.headers.origin;
-  if (!origin) return next();
-  const host = req.headers.host;
-  if (!host) return next();
-  try {
-    const originUrl = new URL(origin);
-    if (originUrl.host === host) return next();
-  } catch {
-    // malformed Origin — reject below
-  }
-  return res.status(403).json({
-    success: false,
-    error: 'ORIGIN_MISMATCH',
-    message: 'Cross-origin request rejected.',
-  });
+//
+// `allowedOrigins` lets extra origins through when the dashboard is
+// reached via a proxy/hostname whose Host header differs from the
+// browser Origin. Set it to `['*']` to disable the check entirely
+// (not recommended for a panel that can control systemd services).
+export function createOriginCheck({ allowedOrigins = [] } = {}) {
+  const allowAll = allowedOrigins.includes('*');
+  const normalized = allowedOrigins
+    .filter((o) => o && o !== '*')
+    .map((o) => {
+      try {
+        return new URL(o).origin;
+      } catch {
+        return o;
+      }
+    });
+
+  return function checkSameOrigin(req, res, next) {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+    const origin = req.headers.origin;
+    if (!origin) return next();
+    if (allowAll) return next();
+    const host = req.headers.host;
+    if (!host) return next();
+    try {
+      const originUrl = new URL(origin);
+      if (originUrl.host === host) return next();
+      if (normalized.includes(originUrl.origin) || normalized.includes(origin)) return next();
+    } catch {
+      // malformed Origin — reject below
+    }
+    return res.status(403).json({
+      success: false,
+      error: 'ORIGIN_MISMATCH',
+      message: 'Cross-origin request rejected.',
+    });
+  };
 }

@@ -1,0 +1,92 @@
+#!/bin/bash
+# =============================================================================
+# Docker Control Helper for Telegram Bot Dashboard
+# =============================================================================
+# This script provides a NARROWLY RESTRICTED interface to docker compose
+# for the dashboard. It validates all inputs and only allows operations
+# on the allowlisted Rubika and Bale services.
+#
+# SECURITY:
+#   - Only 'rubika' and 'bale' service names are accepted.
+#   - Only 'start', 'stop', 'restart', 'ps', and 'logs' actions are allowed.
+#   - The Docker socket is NEVER exposed over the network.
+#   - This script must be the ONLY command the dashboard is allowed to run
+#     via sudo for Docker control.
+#
+# Usage:
+#   docker-control-helper <service> <action> [lines]
+#
+# Arguments:
+#   service - One of: rubika, bale
+#   action  - One of: start, stop, restart, ps, logs
+#   lines   - Optional number of log lines (for logs action only, default: 100)
+#
+# Environment:
+#   COMPOSE_FILE   - Path to compose.yaml (default: /home/etejah-bot/bot2/compose.yaml)
+#   COMPOSE_PROJECT - Compose project name (default: etejah-bots)
+#   WORK_DIR        - Working directory for docker compose (default: /home/etejah-bot/bot2)
+# =============================================================================
+
+set -euo pipefail
+
+COMPOSE_FILE="${COMPOSE_FILE:-/home/etejah-bot/bot2/compose.yaml}"
+COMPOSE_PROJECT="${COMPOSE_PROJECT:-etejah-bots}"
+WORK_DIR="${WORK_DIR:-/home/etejah-bot/bot2}"
+
+# Hardcoded allowlist of service names and actions
+ALLOWED_SERVICES="rubika bale"
+ALLOWED_ACTIONS="start stop restart ps logs"
+
+if [ $# -lt 2 ]; then
+    echo "ERROR: Missing arguments. Usage: $0 <service> <action> [lines]" >&2
+    exit 1
+fi
+
+SERVICE="$1"
+ACTION="$2"
+LINES="${3:-100}"
+
+# Validate service name
+case "$SERVICE" in
+    rubika|bale) ;;
+    *)
+        echo "ERROR: Service '$SERVICE' is not allowed. Allowed: $ALLOWED_SERVICES" >&2
+        exit 1
+        ;;
+esac
+
+# Validate action
+case "$ACTION" in
+    start|stop|restart|ps|logs) ;;
+    *)
+        echo "ERROR: Action '$ACTION' is not allowed. Allowed: $ALLOWED_ACTIONS" >&2
+        exit 1
+        ;;
+esac
+
+# Validate lines parameter for logs action
+if [ "$ACTION" = "logs" ]; then
+    if ! [[ "$LINES" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: lines must be a positive integer" >&2
+        exit 1
+    fi
+    if [ "$LINES" -lt 1 ] || [ "$LINES" -gt 1000 ]; then
+        echo "ERROR: lines must be between 1 and 1000" >&2
+        exit 1
+    fi
+fi
+
+# Execute docker compose command
+cd "$WORK_DIR"
+
+case "$ACTION" in
+    start|stop|restart)
+        docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" "$ACTION" "$SERVICE"
+        ;;
+    ps)
+        docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" ps --format json "$SERVICE"
+        ;;
+    logs)
+        docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" logs --no-color --tail "$LINES" "$SERVICE"
+        ;;
+esac

@@ -3,6 +3,7 @@
 
 import crypto from 'node:crypto';
 import session from 'express-session';
+import { getRequestId } from '../context/request-context.js';
 
 export const SESSION_COOKIE_NAME = 'tbdash.sid';
 
@@ -45,6 +46,7 @@ export function requireAuth(req, res, next) {
     success: false,
     error: 'AUTH_REQUIRED',
     message: 'Authentication required. Please log in.',
+    requestId: getRequestId() || null,
   });
 }
 

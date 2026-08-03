@@ -876,6 +876,215 @@ select:focus {
   }
 }
 
+/* ── Navigation links ─────────────────────────────────────── */
+
+.navbar-links {
+  display: flex;
+  gap: 4px;
+  margin-right: 4px;
+}
+
+.nav-link {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nav-link:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.nav-link-active,
+.nav-link-active:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+/* ── Diagnostics page ─────────────────────────────────────── */
+
+.diag-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.diag-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.diag-subtitle {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: var(--text-muted);
+}
+
+.diag-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.diag-updated {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.diag-section {
+  margin-top: 28px;
+}
+
+.diag-section-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+}
+
+.diag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.diag-grid-narrow {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 14px;
+}
+
+.metric-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.metric-card:hover {
+  border-color: var(--border-strong);
+}
+
+.metric-card-warn {
+  border-color: rgba(210, 153, 34, 0.55);
+  background: var(--amber-dim);
+}
+
+.metric-card-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-faint);
+}
+
+.metric-card-value {
+  font-family: var(--font-mono);
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metric-card-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.metric-card-flag {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-size: 13px;
+}
+
+.perf-table-wrap {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  overflow-x: auto;
+}
+
+.perf-table-title {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+}
+
+.perf-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.perf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.perf-table th,
+.perf-table td {
+  padding: 7px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.perf-table th:first-child,
+.perf-table td:first-child {
+  text-align: left;
+}
+
+.perf-table th {
+  color: var(--text-faint);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.perf-table tr:last-child td {
+  border-bottom: none;
+}
+
+.perf-table tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.perf-op {
+  color: var(--blue);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.perf-fail {
+  color: var(--red);
+  font-weight: 700;
+}
+
 /* ── Responsive ────────────────────────────────────────────── */
 
 @media (max-width: 640px) {
@@ -900,6 +1109,11 @@ select:focus {
 
   .metrics-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .navbar-links {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .summary-bar {

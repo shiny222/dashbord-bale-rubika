@@ -13,28 +13,46 @@ function parseIntEnv(value, fallback, { min, max } = {}) {
   return n;
 }
 
+// Parses a comma-separated list (e.g. ALLOWED_ORIGINS) into a clean array.
+function parseListEnv(value) {
+  if (!value) return [];
+  return String(value)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 // Loads and validates configuration from an environment object
 // (defaults to process.env). Throws on invalid configuration.
 export function loadConfig(envObj = process.env) {
-  const bots = [];
-  // Support up to 10 managed bot services (BOT_1..BOT_10).
-  for (let i = 1; i <= 10; i += 1) {
-    const name = envObj[`BOT_${i}_NAME`];
-    const service = envObj[`BOT_${i}_SERVICE`];
-    if (name === undefined && service === undefined) continue;
-    if (!name || !service) {
-      throw new Error(`BOT_${i}_NAME and BOT_${i}_SERVICE must both be set`);
+  const controlBackend = (envObj.CONTROL_BACKEND || 'systemd').toLowerCase();
+  let bots = [];
+
+  if (controlBackend === 'docker') {
+    bots = [
+      { id: 'rubika', displayName: 'Rubika', serviceName: 'rubika' },
+      { id: 'bale', displayName: 'Bale', serviceName: 'bale' },
+    ];
+  } else {
+    // Support up to 10 managed bot services (BOT_1..BOT_10).
+    for (let i = 1; i <= 10; i += 1) {
+      const name = envObj[`BOT_${i}_NAME`];
+      const service = envObj[`BOT_${i}_SERVICE`];
+      if (name === undefined && service === undefined) continue;
+      if (!name || !service) {
+        throw new Error(`BOT_${i}_NAME and BOT_${i}_SERVICE must both be set`);
+      }
+      if (!/^[A-Za-z0-9_.@-]+$/.test(service)) {
+        throw new Error(`BOT_${i}_SERVICE contains invalid characters: "${service}"`);
+      }
+      if (!service.endsWith('.service')) {
+        throw new Error(`BOT_${i}_SERVICE must end with ".service" (got "${service}")`);
+      }
+      bots.push({ id: `bot${i}`, displayName: name, serviceName: service });
     }
-    if (!/^[A-Za-z0-9_.@-]+$/.test(service)) {
-      throw new Error(`BOT_${i}_SERVICE contains invalid characters: "${service}"`);
+    if (bots.length === 0) {
+      throw new Error('At least one BOT_N_NAME / BOT_N_SERVICE pair is required in the environment');
     }
-    if (!service.endsWith('.service')) {
-      throw new Error(`BOT_${i}_SERVICE must end with ".service" (got "${service}")`);
-    }
-    bots.push({ id: `bot${i}`, displayName: name, serviceName: service });
-  }
-  if (bots.length === 0) {
-    throw new Error('At least one BOT_N_NAME / BOT_N_SERVICE pair is required in the environment');
   }
 
   const telegramApiService = envObj.TELEGRAM_API_SERVICE || 'telegram-bot-api.service';
@@ -47,6 +65,7 @@ export function loadConfig(envObj = process.env) {
   return {
     port,
     host: envObj.HOST || '127.0.0.1',
+    controlBackend,
     bots,
     telegramApi: {
       serviceName: telegramApiService,
@@ -64,7 +83,14 @@ export function loadConfig(envObj = process.env) {
       useSudo: parseBoolean(envObj.USE_SUDO, true),
       secureCookies: parseBoolean(envObj.SECURE_COOKIES, false),
       trustProxy: parseBoolean(envObj.TRUST_PROXY, false),
+      allowedOrigins: parseListEnv(envObj.ALLOWED_ORIGINS),
       commandTimeoutMs: parseIntEnv(envObj.COMMAND_TIMEOUT_MS, 15000, { min: 1000, max: 120000 }),
+    },
+    docker: {
+      helperPath: envObj.DOCKER_HELPER_PATH || '/usr/local/bin/docker-control-helper',
+      composeFile: envObj.DOCKER_COMPOSE_FILE || '/home/etejah-bot/bot2/compose.yaml',
+      project: envObj.DOCKER_COMPOSE_PROJECT || 'etejah-bots',
+      workDir: envObj.DOCKER_WORK_DIR || '/home/etejah-bot/bot2',
     },
     log: {
       level: envObj.LOG_LEVEL || 'info',

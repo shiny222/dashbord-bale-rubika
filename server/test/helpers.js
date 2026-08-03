@@ -23,6 +23,7 @@ export const TEST_ENV = {
   USE_SUDO: 'true',
   SECURE_COOKIES: 'false',
   TRUST_PROXY: 'false',
+  ALLOWED_ORIGINS: '',
 };
 
 export const FIXTURE_SYSTEMCTL_SHOW = [

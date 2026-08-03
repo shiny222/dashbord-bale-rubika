@@ -27,7 +27,11 @@ export function useLogs(serviceName, lines, search) {
         setLoading(false);
       })
       .catch((err) => {
-        if (cancelled || err.name === 'AbortError') return;
+        if (cancelled || err.code === 'TIMEOUT') {
+          if (err.code === 'TIMEOUT' && !cancelled) setError(err);
+          return;
+        }
+        if (err.name === 'AbortError') return;
         setError(err);
         setLoading(false);
       });
