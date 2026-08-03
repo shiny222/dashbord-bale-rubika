@@ -55,8 +55,11 @@ export function loadConfig(envObj = process.env) {
     }
   }
 
-  const telegramApiService = envObj.TELEGRAM_API_SERVICE || 'telegram-bot-api.service';
-  if (!/^[A-Za-z0-9_.@-]+$/.test(telegramApiService) || !telegramApiService.endsWith('.service')) {
+  const telegramApiService = envObj.TELEGRAM_API_SERVICE
+    || (controlBackend === 'docker' ? 'telegram-bot-api' : 'telegram-bot-api.service');
+  const telegramApiServiceIsValid = /^[A-Za-z0-9_.@-]+$/.test(telegramApiService)
+    && (controlBackend === 'docker' || telegramApiService.endsWith('.service'));
+  if (!telegramApiServiceIsValid) {
     throw new Error(`TELEGRAM_API_SERVICE is invalid: "${telegramApiService}"`);
   }
 

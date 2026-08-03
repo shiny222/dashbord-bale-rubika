@@ -34,7 +34,7 @@ COMPOSE_PROJECT="${COMPOSE_PROJECT:-etejah-bots}"
 WORK_DIR="${WORK_DIR:-/home/etejah-bot/bot2}"
 
 # Hardcoded allowlist of service names and actions
-ALLOWED_SERVICES="rubika bale"
+ALLOWED_SERVICES="rubika bale telegram-bot-api"
 ALLOWED_ACTIONS="start stop restart ps logs"
 
 if [ $# -lt 2 ]; then
@@ -48,7 +48,7 @@ LINES="${3:-100}"
 
 # Validate service name
 case "$SERVICE" in
-    rubika|bale) ;;
+    rubika|bale|telegram-bot-api) ;;
     *)
         echo "ERROR: Service '$SERVICE' is not allowed. Allowed: $ALLOWED_SERVICES" >&2
         exit 1

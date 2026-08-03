@@ -77,7 +77,7 @@ export default function DashboardPage({ user, onLogout, onNavigate, view }) {
       const verb = action === 'restart' ? 'restart' : 'stop';
       setConfirm({
         title: `${verb === 'restart' ? 'Restart' : 'Stop'} ${service.displayName}?`,
-        body: `This will ${verb} the systemd unit ${service.serviceName}. ${
+        body: `This will ${verb} the service ${service.serviceName}. ${
           verb === 'stop' ? 'The bot will stop forwarding messages until started again.' : 'There may be a short interruption.'
         }`,
         confirmLabel: verb === 'restart' ? 'Restart' : 'Stop',
@@ -96,7 +96,7 @@ export default function DashboardPage({ user, onLogout, onNavigate, view }) {
       const verb = action === 'restart' ? 'restart' : 'stop';
       setConfirm({
         title: `${action === 'restart' ? 'Restart' : 'Stop'} the Telegram Local API?`,
-        body: `This will ${verb} the systemd unit and interrupt bot connectivity to the local Bot API server.`,
+        body: `This will ${verb} the Telegram Bot API service and interrupt bot connectivity.`,
         confirmLabel: action === 'restart' ? 'Restart' : 'Stop',
         run: () => runApiAction(action),
       });

@@ -28,7 +28,7 @@ export default function TelegramApiCard({ health, busyAction, onAction }) {
       <div className="card-header">
         <div>
           <h2 className="card-title">Telegram Local Bot API</h2>
-          <p className="card-subtitle">{service.serviceName || 'telegram-bot-api.service'}</p>
+          <p className="card-subtitle">{service.serviceName || 'telegram-bot-api'}</p>
         </div>
         <StatusPill status={serviceStatus} label={healthy ? 'Healthy' : undefined} />
       </div>
@@ -37,7 +37,7 @@ export default function TelegramApiCard({ health, busyAction, onAction }) {
         <Metric label="Endpoint" value={detail} title="Health probe result" />
         <Metric label="Response time" value={formatResponseTime(endpoint.responseTimeMs)} title="HTTP probe latency" />
         <Metric label="HTTP status" value={endpoint.statusCode ?? '—'} title="Last probe status code" />
-        <Metric label="systemd state" value={service.subState || '—'} title="systemd SubState" />
+        <Metric label="Service state" value={service.subState || '—'} title="Container or systemd service state" />
       </div>
 
       <p className="card-hint">
